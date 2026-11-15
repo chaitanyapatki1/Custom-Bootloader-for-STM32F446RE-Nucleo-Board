@@ -228,7 +228,13 @@ int main(void)
     	                                        "  help     - Show this help menu\r\n"
     	                                        "  version  - Display bootloader version\r\n"
     	                                        "  jump     - Jump to user application\r\n"
-    	                                        "  erase    - Erase application sector (stub)\r\n";
+    	                                        "  erase    - Erase application sector\r\n"
+    	                    		  	  	  	"  reset    - Perform a software system reset\r\n"
+    	                    		  	  	  	"  info		- System Info and Diagnostic Data\r\n"
+    	                              	  	  	"  dump     - Inspect user app vector table bytes\r\n"
+    	                              	  	  	"  pins     - Check physical button status\r\n"
+    	                              	  	  	"  clear	- Clear the screen\r\n"
+    	                              	  	  	"  uid		- Unique device ID of the microcontroller from the factory registers\r\n";
     	                      HAL_UART_Transmit(&huart2, (uint8_t*)help_text, strlen(help_text), HAL_MAX_DELAY);
     	                  }
     	                  else if (strcmp(cmd_buffer, "version") == 0)
@@ -246,9 +252,88 @@ int main(void)
     	                  }
     	                  else if (strcmp(cmd_buffer, "erase") == 0)
     	                  {
-    	                      char *erase_text = "Flash erase routine not yet implemented.\r\n";
-    	                      HAL_UART_Transmit(&huart2, (uint8_t*)erase_text, strlen(erase_text), HAL_MAX_DELAY);
+    	                	  char *erase_msg = "Erasing application flash sectors (2-7)...\r\n";
+    	                	      HAL_UART_Transmit(&huart2, (uint8_t*)erase_msg, strlen(erase_msg), HAL_MAX_DELAY);
+
+    	                	      // 1. Unlock the Flash control register memory
+    	                	      HAL_FLASH_Unlock();
+
+    	                	      FLASH_EraseInitTypeDef eraseInitStruct;
+    	                	      uint32_t SectorError = 0;
+
+    	                	      // 2. Configure erase parameters for user application space
+    	                	      eraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
+    	                	      eraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3; // 2.7V to 3.6V (Nucleo 3.3V)
+    	                	      eraseInitStruct.Sector = FLASH_SECTOR_2;             // Start at 0x08008000
+    	                	      eraseInitStruct.NbSectors = 6;                       // Erase Sectors 2, 3, 4, 5, 6, 7
+
+    	                	      // 3. Execute the hardware sector erase
+    	                	      if (HAL_FLASHEx_Erase(&eraseInitStruct, &SectorError) == HAL_OK)
+    	                	      {
+    	                	          char *ok_msg = "Flash erase completed successfully!\r\n";
+    	                	          HAL_UART_Transmit(&huart2, (uint8_t*)ok_msg, strlen(ok_msg), HAL_MAX_DELAY);
+    	                	      }
+    	                	      else
+    	                	      {
+    	                	          char *err_msg = "Flash erase failed!\r\n";
+    	                	          HAL_UART_Transmit(&huart2, (uint8_t*)err_msg, strlen(err_msg), HAL_MAX_DELAY);
+    	                	      }
+
+    	                	      // 4. Lock Flash back up to prevent accidental corruption
+    	                	      HAL_FLASH_Lock();
     	                  }
+    	                  else if (strcmp(cmd_buffer, "reset") == 0) {
+    	                      char *rst_text = "System resetting...\r\n";
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)rst_text, strlen(rst_text), HAL_MAX_DELAY);
+    	                      HAL_Delay(100); // Give UART time to flush
+    	                      NVIC_SystemReset();
+    	                  }
+    	                  else if (strcmp(cmd_buffer, "info") == 0) {
+    	                      uint32_t msp = *(__IO uint32_t*)0x08008000;
+    	                      uint32_t reset_handler = *(__IO uint32_t*)0x08008004;
+
+    	                      char info_buf[128];
+    	                      int len = snprintf(info_buf, sizeof(info_buf),
+    	                          "--- System Info ---\r\n"
+    	                          "MCU: STM32F446RE\r\n"
+    	                          "App Address: 0x08008000\r\n"
+    	                          "App MSP: 0x%08lX\r\n"
+    	                          "App ResetHandler: 0x%08lX\r\n"
+    	                          "Status: %s\r\n",
+    	                          msp, reset_handler,
+    	                          ((msp >= 0x20000000) && (msp <= 0x20020000)) ? "Valid App Found" : "No App / Invalid");
+
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)info_buf, len, HAL_MAX_DELAY);
+    	                  }
+    	                  else if (strcmp(cmd_buffer, "dump") == 0) {
+    	                      uint32_t *target_addr = (uint32_t*)0x08008000; // Inspect start of app
+    	                      char dump_buf[64];
+
+    	                      int len = snprintf(dump_buf, sizeof(dump_buf), "Dump @ 0x%08lX: %08lX %08lX\r\n",
+    	                                         (uint32_t)target_addr, target_addr[0], target_addr[1]);
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)dump_buf, len, HAL_MAX_DELAY);
+    	                  }
+    	                  else if (strcmp(cmd_buffer, "pins") == 0) {
+    	                      GPIO_PinState b1_state = HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin);
+    	                      char pin_text[40];
+    	                      int len = snprintf(pin_text, sizeof(pin_text), "Button B1 (PC13) State: %s\r\n",
+    	                                         (b1_state == GPIO_PIN_RESET) ? "PRESSED" : "RELEASED");
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)pin_text, len, HAL_MAX_DELAY);
+    	                  }
+    	                  else if (strcmp(cmd_buffer, "clear") == 0) {
+    	                      char *cls_text = "\033[2J\033[H"; // ANSI escape code for clear screen and home cursor
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)cls_text, strlen(cls_text), HAL_MAX_DELAY);
+    	                  }
+    	                  else if (strcmp(cmd_buffer, "uid") == 0) {
+    	                      uint32_t uid0 = *(__IO uint32_t*)(0x1FFF7A10);
+    	                      uint32_t uid1 = *(__IO uint32_t*)(0x1FFF7A14);
+    	                      uint32_t uid2 = *(__IO uint32_t*)(0x1FFF7A18);
+
+    	                      char uid_buf[64];
+    	                      int len = snprintf(uid_buf, sizeof(uid_buf), "MCU Unique ID: %08lX-%08lX-%08lX\r\n", uid0, uid1, uid2);
+    	                      HAL_UART_Transmit(&huart2, (uint8_t*)uid_buf, len, HAL_MAX_DELAY);
+    	                  }
+
     	                  else if (strlen(cmd_buffer) > 0)
     	                  {
     	                      char *err_text = "Unknown command. Type 'help' for options.\r\n";
