@@ -1,24 +1,29 @@
-STM32F446RE IAP Bootloader Documentation
+**STM32F446RE IAP Bootloader Documentation
 Comprehensive Guide & In-Depth Technical Design Reference
-PART 1: High-Level Overview & Architecture Guide
+**
+_PART 1: High-Level Overview & Architecture Guide_
+
 1. Project Overview & Architecture
 This project implements an In-Application Programming (IAP) bootloader for the STM32F446RE Nucleo board (ARM Cortex-M4, 128KB RAM, 512KB Flash). Instead of a monolithic firmware file, the memory is split into two independent projects within the same workspace:
 •	The Bootloader (CustomBootloaderF446RENucleo): Occupies the first 32KB of flash (0x08000000 to 0x08007FFF). It handles hardware startup checks, user button inputs, a UART command-line interface (CLI), application vector/stack validation, and the final execution jump.
 •	The User Application (UserAppF446RE): Occupies the remaining flash starting from 0x08008000. It runs its own independent logic, relocated interrupt vectors, and application features.
+
 2. Memory Mapping & Linker Configuration
 •	Bootloader Linker Setup (0x08000000): The bootloader remains on the default STM32 memory layout, starting at the base flash address (FLASH: ORIGIN = 0x08000000, LENGTH = 32K; RAM: ORIGIN = 0x20000000, LENGTH = 128K).
 •	User Application Linker Setup (0x08008000): To prevent the application from overwriting the bootloader, its linker script (STM32F446RETX_FLASH.ld) was shifted forward by 32KB (FLASH: ORIGIN = 0x08008000, LENGTH = 480K; RAM: ORIGIN = 0x20000000, LENGTH = 128K).
+
 3. Core Implementation Details
 •	A. Bootloader Startup & Timeout Window: Upon hardware reset, the bootloader initializes system peripherals and prints a startup message over USART2 (115200 baud). It enters a 3-second timeout loop checking the blue user button (B1 / PC13). If pressed, it enters Bootloader CLI Mode; if timeout expires, it automatically attempts to jump to the user app.
 •	B. Vector Table Relocation: Because the user app executes from 0x08008000, the processor's Vector Table must be explicitly relocated at runtime so interrupts map correctly (SCB->VTOR = FLASH_BASE | 0x8000;).
 •	C. Application Validation & Jump Routine (go2APP): Before jumping, the bootloader verifies that a valid stack pointer exists in RAM boundaries (0x20000000 - 0x20020000), retrieves the Reset Handler entry address, de-initializes HAL and clock peripherals (HAL_RCC_DeInit(), HAL_DeInit()), disables global interrupts (__disable_irq()), sets Main Stack Pointer (__set_MSP), and jumps.
 •	D. UART Command-Line Interface (CLI): When staying in bootloader mode, an interactive loop provides responsive CLI parser support (help/?, version, jump, erase stub).
+
 4. End-to-End Workflow Verification
 •	Flashing: Bootloader compiled & programmed to 0x08000000; User Application compiled & programmed independently to 0x08008000.
 •	Memory Verification: STM32CubeIDE Memory View at 0x08008000 confirms valid initial stack pointer headers (e.g. little-endian 00000220 resolving to RAM address 0x20000220).
 •	Execution & Jump: Timeout expiration or typing 'jump' in CLI triggers go2APP(), cleanly passing control to the application to print '>>> Hello from the User Application! <<<'.
 
- PART 2: Deep Technical Design Reference & Code Implementation
+ _PART 2: Deep Technical Design Reference & Code Implementation_
 1. System Architecture & Memory Map
 The STM32F446RE microcontroller features an ARM Cortex-M4 core operating up to 180 MHz, with 512 KB internal Flash and 128 KB SRAM. Physical memory partitioning guarantees operational integrity during updates:
 Region	Flash Start Address	Size	Purpose
