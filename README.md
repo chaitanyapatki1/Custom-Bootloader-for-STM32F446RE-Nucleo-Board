@@ -1,6 +1,6 @@
-**STM32F446RE IAP Bootloader Documentation
+STM32F446RE IAP Bootloader Documentation
 Comprehensive Guide & In-Depth Technical Design Reference
-**
+
 _PART 1: High-Level Overview & Architecture Guide_
 
 1. Project Overview & Architecture
